@@ -2,14 +2,12 @@ package com.fitness.gateway.config;
 
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.WebFilterChain;
-import org.springframework.web.server.WebFilter;
+import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.core.Ordered;
 import org.springframework.http.server.reactive.ServerHttpRequest;
-
-import com.fitness.gateway.dto.RegisterRequest;
-import com.fitness.gateway.service.UserService;
-import com.nimbusds.jwt.JWTClaimsSet;
-import com.nimbusds.jwt.SignedJWT;
+import org.springframework.security.core.context.ReactiveSecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,9 +16,48 @@ import reactor.core.publisher.Mono;
 @Component
 @Slf4j
 @RequiredArgsConstructor
-public class KeycloakUserSyncFilter implements WebFilter {
+public class KeycloakUserSyncFilter implements GlobalFilter, Ordered {
     
-    private final UserService userService;
+    /**
+     * Filtro para agregar el ID del usuario autenticado (obtenido del token JWT) a las solicitudes que pasan por el API Gateway.
+     * Este filtro se ejecuta después de que Spring Security haya autenticado al usuario, por lo que el contexto de seguridad ya estará disponible.
+     * @param exchange El intercambio de la solicitud y respuesta HTTP.
+     * @param chain La cadena de filtros del API Gateway.
+     * @return Un Mono que indica cuándo se ha completado el procesamiento del filtro.
+     */
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        // Obtenemos el contexto de seguridad reactivo
+        return ReactiveSecurityContextHolder.getContext()
+            .filter(c -> c.getAuthentication() != null) // Nos aseguramos de que haya una autenticación
+            .flatMap(c -> {
+                // Obtenemos el objeto de autenticación y el token JWT
+                Object principal = c.getAuthentication().getPrincipal();
+                if (principal instanceof Jwt) {
+                    Jwt jwt = (Jwt) principal;
+                    String userId = jwt.getSubject(); // 'sub' claim es el ID del usuario en Keycloak
+
+                    // Mutamos la petición para añadir el nuevo header
+                    ServerHttpRequest request = exchange.getRequest().mutate()
+                        .header("X-User-ID", userId)
+                        .build();
+                    
+                    // Continuamos la cadena de filtros con la petición modificada
+                    return chain.filter(exchange.mutate().request(request).build());
+                }
+                // Si no es un JWT, continuamos sin hacer nada
+                return chain.filter(exchange);
+            })
+            .switchIfEmpty(chain.filter(exchange)); // Si no hay contexto de seguridad (peticiones públicas), continuamos
+    }
+
+    @Override
+    public int getOrder() {
+        // Se ejecuta después de los filtros de seguridad de Spring
+        return 1; 
+    }
+
+    /*private final UserService userService;
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
@@ -79,5 +116,5 @@ public class KeycloakUserSyncFilter implements WebFilter {
             e.printStackTrace();
             return null;
         }
-    }
+    }*/
 }

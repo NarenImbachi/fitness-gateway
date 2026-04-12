@@ -14,7 +14,7 @@ import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 import org.springframework.security.config.Customizer;
 
 @Configuration
-@EnableWebFluxSecurity
+@EnableWebFluxSecurity // Habilita WebFlux Security (porque Gateway usa Project Reactor)
 public class SecurityConfig {
 
     /**
@@ -27,6 +27,8 @@ public class SecurityConfig {
         return http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)                             // Deshabilitar CSRF para el gateway
                 .authorizeExchange(exchange -> exchange 
+                    .pathMatchers("/api/users/{userId}/validate").permitAll() 
+                .pathMatchers("/api/users/register").permitAll() 
                 .pathMatchers("/actuator/*").permitAll()                                // Permitir acceso a endpoints de actuator
                 .anyExchange().authenticated())                                         // Requerir autenticacion para cualquier otro endpoint
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))  // Configurar el gateway como un recurso protegido por JWT
@@ -45,7 +47,9 @@ public class SecurityConfig {
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "X-User-ID"));
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/api/**", configuration);
+        source.registerCorsConfiguration("/**", configuration);
+        //source.registerCorsConfiguration("/api/**", configuration);
+
         return source;
     }
 }
